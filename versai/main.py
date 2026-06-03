@@ -61,7 +61,7 @@ async def main() -> None:
     )
 
     started = time.perf_counter()
-    results = await orchestrator.run(STREAM, workers=4)
+    results = await orchestrator.run(STREAM, workers=4, stream_delay=0.02)
     elapsed_ms = (time.perf_counter() - started) * 1000
     results.sort(key=lambda r: r.query_id)
 

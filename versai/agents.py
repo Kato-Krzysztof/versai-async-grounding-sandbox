@@ -28,7 +28,7 @@ def _claim_of(p: Product) -> ProductClaim:
 
 def _describe(p: Product) -> str:
     avail = "in stock" if p.in_stock else "currently out of stock"
-    return f"I'd suggest the {p.name} by {p.brand} — {p.color}, ${p.price:,.0f}, {avail}."
+    return f"I'd suggest the {p.name} by {p.brand} - {p.color}, ${p.price:,.2f}, {avail}."
 
 
 def draft_recommendation(query, feedback, attempt):
@@ -56,7 +56,7 @@ class PersonalShopper:
         return AgentResponse(query_id=query.query_id, message=message, claim=claim, attempt=attempt)
 
 
-_PRICE_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
+_PRICE_RE = re.compile(r"\$\s*(\d[\d,]*(?:\.\d+)?)")  # must start with a digit
 
 
 def _money_eq(a: float, b: float) -> bool:
@@ -97,13 +97,19 @@ class GroundingJudge:
                 field="in_stock", claimed=str(claim.in_stock), expected=str(product.in_stock),
                 detail="Availability does not match inventory."))
 
-        # Catch prose drift: any price quoted in the message must also match the truth.
+        # Cross-check the prose: if it quotes prices, at least one must be the real
+        # price (prose may legitimately mention sale/original/shipping figures too).
+        quoted = []
         for raw in _PRICE_RE.findall(response.message):
-            if not _money_eq(float(raw.replace(",", "")), product.price):
-                violations.append(GroundingViolation(
-                    field="message", claimed=f"${raw}", expected=f"${product.price:,.2f}",
-                    detail="Price quoted in prose drifts from inventory."))
-                break
+            try:
+                quoted.append(float(raw.replace(",", "")))
+            except ValueError:
+                continue
+        if quoted and not any(_money_eq(q, product.price) for q in quoted):
+            violations.append(GroundingViolation(
+                field="message", claimed=", ".join(f"${q:,.2f}" for q in quoted),
+                expected=f"${product.price:,.2f}",
+                detail="No price quoted in the prose matches inventory."))
 
         if violations:
             return self._regression(response, violations, grounded=product)

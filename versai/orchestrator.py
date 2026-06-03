@@ -76,17 +76,27 @@ class Orchestrator:
             finally:
                 self.ingestion.task_done()
 
-    async def run(self, queries, workers: int = 4) -> list[TaskResult]:
-        """Submit queries, process them concurrently, and return every result."""
-        for query in queries:
-            await self.submit(query)
+    async def run(self, queries: list[UserQuery], workers: int = 4,
+                  stream_delay: float = 0.0) -> list[TaskResult]:
+        """Stream queries onto the queue while a worker pool consumes them concurrently."""
+        if workers < 1:
+            raise ValueError("workers must be >= 1")
 
         pool = [asyncio.create_task(self._worker()) for _ in range(workers)]
-        await self.ingestion.join()          # block until every query is done
+        producer = asyncio.create_task(self._ingest(queries, stream_delay))
+        await producer                       # all queries enqueued (workers already draining)
+        await self.ingestion.join()          # all queries processed
         for task in pool:
             task.cancel()
         await asyncio.gather(*pool, return_exceptions=True)
         return _drain(self.results)
+
+    async def _ingest(self, queries: list[UserQuery], delay: float) -> None:
+        """Producer: feed queries onto the queue, simulating a live incoming stream."""
+        for query in queries:
+            await self.submit(query)
+            if delay:
+                await asyncio.sleep(delay)
 
 
 def _drain(queue: asyncio.Queue) -> list:

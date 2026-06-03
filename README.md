@@ -17,8 +17,8 @@ Flow: `queue → Agent A → Agent B → grounded? finalize : retry (≤3) → h
 
 ```
 pip install -r requirements.txt
-python -m versai.main
-pytest
+python -m versai.main   # concurrent stream demo
+pytest                  # test suite (run from the repo root)
 ```
 
 ## Layout

@@ -7,6 +7,8 @@ deterministic. asyncio_mode="auto" is set in pyproject, so no per-test marker.
 
 from __future__ import annotations
 
+import pytest
+
 from versai.agents import GroundingJudge, PersonalShopper, draft_recommendation
 from versai.inventory import find_by_name
 from versai.models import (
@@ -208,3 +210,28 @@ async def test_money_comparison_tolerates_float_noise():
     assert (await _verdict(ProductClaim(name=TOTE, price=real.price + 0.004))).is_grounded
     off = await _verdict(ProductClaim(name=TOTE, price=real.price + 0.5))
     assert any(v.field == "price" for v in off.violations)
+
+
+async def test_prose_with_multiple_prices_grounds_when_real_one_is_present():
+    # Sale/original prices in prose must not false-flag when the true price is there.
+    real = find_by_name(TOTE)
+    verdict = await _verdict(_claim(real), message=f"Was $2,000.00, now ${real.price:,.2f}!")
+    assert verdict.is_grounded
+
+
+async def test_judge_does_not_crash_on_malformed_price_token():
+    # A bare "$," used to crash the prose check (float("")); now it's just ignored.
+    verdict = await _verdict(_claim(find_by_name(TOTE)), message="Call for pricing: $, today!")
+    assert verdict.is_grounded
+
+
+async def test_streaming_ingestion_processes_all_and_requires_workers():
+    # Queries stream in (with a delay) while the worker pool consumes concurrently.
+    orch = Orchestrator(shopper=PersonalShopper(generate=clean_gen(TOTE)))
+    queries = [UserQuery(query_id=f"s-{i}", text="tote") for i in range(8)]
+    results = await orch.run(queries, workers=3, stream_delay=0.001)
+    assert {r.query_id for r in results} == {q.query_id for q in queries}
+    assert all(r.final_state is TaskState.FINALIZED for r in results)
+
+    with pytest.raises(ValueError):
+        await Orchestrator().run([], workers=0)
